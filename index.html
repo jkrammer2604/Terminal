@@ -57,7 +57,7 @@
     </div>
 
     <script>
-        // --- SUPABASE KONFIGURATION ---
+        // --- HIER DEINE SUPABASE DATEN EINTRAGEN ---
         const SUPABASE_URL = 'https://fyklknvrahzaqeksiosq.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_A3FfZHSipqUHb74clLXjeg_VDhqeu12';
         
@@ -68,76 +68,176 @@
         const promptLabel = document.getElementById('prompt-label');
 
         let currentUser = null;
-        let authState = "LOGIN_USER"; 
+        let authState = "LOGIN_USER"; // LOGIN_USER, LOGIN_PASS, NORMAL
         let tempUser = "";
-        let pendingSudoCmd = "";
-        let currentPath = ["home", "guest"];
+        let currentPath = [];
 
-        // Initialisierungstest der Verbindung
-        async function checkConnection() {
-            try {
-                const { data, error } = await supabaseClient.from('users').select('*').limit(1);
-                if (error) {
-                    terminal.innerHTML += `Hinweis: Konnte keine Verbindung zur 'users'-Tabelle herstellen (${error.message}). Läuft die Datenbank?\n`;
-                } else {
-                    terminal.innerHTML += `Erfolgreich mit Supabase verbunden!\n`;
-                }
-            } catch (err) {
-                terminal.innerHTML += `Netzwerkfehler bei Supabase-Verbindung.\n`;
-            }
-            terminal.innerHTML += `Standard-Logins: 'root' oder 'guest'\n\n`;
-        }
-        checkConnection();
-
-        let currentPathArr = ["home", "guest"];
-
-        // Beispiel für das Laden von Dateien aus Supabase statt lokalem Objekt
-        async function fetchFilesFromSupabase(pathStr) {
-            const { data, error } = await supabaseClient
-                .from('terminal_files')
-                .select('*')
-                .eq('path', pathStr);
-            
+        async function initTerminal() {
+            const { error } = await supabaseClient.from('users').select('id').limit(1);
             if (error) {
-                console.error("Fehler beim Laden:", error);
-                return {};
+                terminal.innerHTML += `Fehler: Konnte nicht auf Supabase zugreifen (${error.message}).\n`;
+            } else {
+                terminal.innerHTML += `Verbindung zu Supabase erfolgreich!\n`;
             }
-            let filesObj = {};
-            data.forEach(row => {
-                filesObj[row.name] = { type: row.type, content: row.content };
-            });
-            return filesObj;
+            terminal.innerHTML += `Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)\n\n`;
+            updatePrompt();
+        }
+        initTerminal();
+
+        function getPathString() {
+            if (currentPath.length === 0) return "~";
+            return "~/" + currentPath.join("/");
         }
 
-        // Befehlsverarbeitung (Beispielhaft gekürzt auf Kernfunktionen mit DB-Anbindung)
+        function updatePrompt() {
+            if (!currentUser) {
+                promptLabel.innerText = authState === "LOGIN_PASS" ? "Password:" : "login:";
+            } else {
+                const symbol = currentUser === 'root' ? '#' : '$';
+                promptLabel.innerText = `${currentUser}@linux-box:${getPathString()}${symbol}`;
+            }
+        }
+
         commandInput.addEventListener('keydown', async function(event) {
             if (event.key === 'Enter') {
                 const inputVal = commandInput.value.trim();
-                if (inputVal === "") return;
 
-                terminal.innerHTML += `\n> ${inputVal}\n`;
-                
-                // Hier greifst du nun direkt auf Supabase zu, z.B. für Dateispeicherung via touch/echo:
-                if (inputVal.startsWith('touch ')) {
-                    let fileName = inputVal.split(' ')[1];
-                    // Speichern in Supabase Tabelle 'terminal_files'
-                    const { error } = await supabaseClient
-                        .from('terminal_files')
-                        .insert([{ path: currentPath.join('/'), name: fileName, type: 'file', content: '' }]);
-                    
-                    if (error) {
-                        terminal.innerHTML += `Fehler beim Erstellen in Supabase: ${error.message}\n`;
-                    } else {
-                        terminal.innerHTML += `Datei ${fileName} in Supabase gespeichert.\n`;
+                // 1. Login Ablauf
+                if (!currentUser) {
+                    if (authState === "LOGIN_USER") {
+                        tempUser = inputVal;
+                        terminal.innerHTML += `login: ${tempUser}\n`;
+                        if (tempUser) {
+                            authState = "LOGIN_PASS";
+                        }
+                    } else if (authState === "LOGIN_PASS") {
+                        terminal.innerHTML += `Password: ****\n`;
+                        // Benutzer in Supabase prüfen
+                        const { data, error } = await supabaseClient
+                            .from('users')
+                            .select('*')
+                            .eq('username', tempUser)
+                            .single();
+
+                        if (data && data.password === inputVal) {
+                            currentUser = data.username;
+                            currentPath = [currentUser];
+                            authState = "NORMAL";
+                            terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für Befehle.\n`;
+                        } else {
+                            terminal.innerHTML += `Login incorrect\n`;
+                            authState = "LOGIN_USER";
+                        }
+                        tempUser = "";
                     }
-                } else {
-                    terminal.innerHTML += `Befehl ausgeführt (Supabase-Modus aktiv).\n`;
+                    commandInput.value = '';
+                    updatePrompt();
+                    terminal.scrollTop = terminal.scrollHeight;
+                    return;
                 }
+
+                // 2. Normaler Terminal-Modus
+                if (inputVal === "") return;
+                const symbol = currentUser === 'root' ? '#' : '$';
+                terminal.innerHTML += `\n${currentUser}@linux-box:${getPathString()}${symbol} ${inputVal}\n`;
+
+                const parts = inputVal.split(' ');
+                const cmd = parts[0];
+                const args = parts.slice(1);
+
+                await executeDbCommand(cmd, args);
 
                 commandInput.value = '';
                 terminal.scrollTop = terminal.scrollHeight;
             }
         });
+
+        // Befehle mit Supabase-Verknüpfung ausführen
+        async function executeDbCommand(cmd, args) {
+            const fullPath = currentPath.join('/');
+
+            switch (cmd) {
+                case 'help':
+                    terminal.innerHTML += `Verfügbare Befehle:\n` +
+                                          `  help              - Zeigt Hilfe\n` +
+                                          `  ls                - Dateien anzeigen (aus DB)\n` +
+                                          `  touch <datei>     - Datei erstellen (in DB)\n` +
+                                          `  cat <datei>       - Datei lesen (aus DB)\n` +
+                                          `  whoami            - Aktueller Nutzer\n` +
+                                          `  exit              - Abmelden\n` +
+                                          `  clear             - Bildschirm leeren\n`;
+                    break;
+
+                case 'ls':
+                    const { data: files, error } = await supabaseClient
+                        .from('terminal_files')
+                        .select('name')
+                        .eq('path', fullPath);
+
+                    if (error) {
+                        terminal.innerHTML += `Fehler beim Laden: ${error.message}\n`;
+                    } else {
+                        const fileNames = files.map(f => f.name).join('  ');
+                        terminal.innerHTML += fileNames + '\n';
+                    }
+                    break;
+
+                case 'touch':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `touch: Dateiname fehlt\n`;
+                        return;
+                    }
+                    const fileName = args[0];
+                    const { error: insertError } = await supabaseClient
+                        .from('terminal_files')
+                        .insert([{ path: fullPath, name: fileName, type: 'file', content: '' }]);
+
+                    if (insertError) {
+                        terminal.innerHTML += `Fehler: ${insertError.message}\n`;
+                    } else {
+                        terminal.innerHTML += `Datei '${fileName}' in Supabase erstellt.\n`;
+                    }
+                    break;
+
+                case 'cat':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `cat: Dateiname fehlt\n`;
+                        return;
+                    }
+                    const targetFile = args[0];
+                    const { data: fileData, error: readError } = await supabaseClient
+                        .from('terminal_files')
+                        .select('content')
+                        .eq('path', fullPath)
+                        .eq('name', targetFile)
+                        .single();
+
+                    if (readError || !fileData) {
+                        terminal.innerHTML += `cat: ${targetFile}: Datei nicht gefunden\n`;
+                    } else {
+                        terminal.innerHTML += (fileData.content || '') + '\n';
+                    }
+                    break;
+
+                case 'whoami':
+                    terminal.innerHTML += `${currentUser}\n`;
+                    break;
+
+                case 'exit':
+                    currentUser = null;
+                    authState = "LOGIN_USER";
+                    terminal.innerHTML += `Abgemeldet.\n`;
+                    updatePrompt();
+                    break;
+
+                case 'clear':
+                    terminal.innerHTML = '';
+                    break;
+
+                default:
+                    terminal.innerHTML += `bash: ${cmd}: Befehl nicht gefunden\n`;
+            }
+        }
 
         document.addEventListener('click', () => {
             commandInput.focus();

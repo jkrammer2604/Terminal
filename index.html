@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simuliertes Linux Terminal mit Accounts</title>
+    <title>Linux Terminal mit Useradd & Sudo</title>
     <style>
         body {
             background-color: #121212;
@@ -47,7 +47,7 @@
 <body>
 
     <div id="terminal">System gestartet.
-Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
+Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
 </div>
 
     <div class="input-line">
@@ -60,10 +60,10 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
         const commandInput = document.getElementById('command-input');
         const promptLabel = document.getElementById('prompt-label');
 
-        // Benutzerdatenbank
+        // Dynamische Benutzerdatenbank
         const users = {
-            "guest": { pass: "guest123", home: ["home", "guest"] },
-            "root": { pass: "secret", home: ["root"] }
+            "root": { pass: "secret", home: ["root"], sudo: true },
+            "guest": { pass: "guest123", home: ["home", "guest"], sudo: false }
         };
 
         let currentUser = null;
@@ -78,7 +78,7 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
                     "guest": {
                         type: "dir",
                         content: {
-                            "willkommen.txt": { type: "file", content: "Hallo! Schön, dass du da bist." }
+                            "willkommen.txt": { type: "file", content: "Hallo! Du bist als Gast eingeloggt." }
                         }
                     }
                 }
@@ -86,7 +86,7 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
             "root": {
                 type: "dir",
                 content: {
-                    "flag.txt": { type: "file", content: "FLAG{linux_master_2026}" }
+                    "geheimes_flag.txt": { type: "file", content: "FLAG{sudo_master_2026}" }
                 }
             }
         };
@@ -128,7 +128,6 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
                         if (users[tempUser]) {
                             terminal.innerHTML += `login: ${tempUser}\n`;
                             currentPassCheck = true;
-                            // Passwortfeld unsichtbar machen (simuliert durch Typ oder Text-Hinweis)
                         } else {
                             terminal.innerHTML += `login: ${tempUser}\nLogin incorrect\n`;
                         }
@@ -150,7 +149,7 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
                     return;
                 }
 
-                // Normaler Terminal-Modus nach Login
+                // Befehlsausführung nach Login
                 const commandLine = inputVal.trim();
                 const parts = commandLine.split(' ');
                 const cmd = parts[0];
@@ -166,20 +165,26 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
             }
         });
 
-        function executeCommand(cmd, args) {
+        function executeCommand(cmd, args, runAsRoot = false) {
+            const activeUser = runAsRoot ? 'root' : currentUser;
+
             switch (cmd) {
                 case 'help':
                     terminal.innerHTML += `Verfügbare Befehle:\n` +
-                                          `  help         - Zeigt diese Hilfe an\n` +
-                                          `  ls           - Listet Dateien auf\n` +
-                                          `  cd <ordner>  - Wechselt das Verzeichnis\n` +
-                                          `  cat <datei>  - Zeigt den Inhalt einer Datei\n` +
-                                          `  whoami       - Zeigt den aktuellen Benutzer\n` +
-                                          `  su <user>    - Benutzer wechseln\n` +
-                                          `  exit         - Ausloggen\n` +
-                                          `  clear        - Leert den Bildschirm\n`;
+                                          `  help              - Zeigt diese Hilfe\n` +
+                                          `  ls                - Listet Dateien auf\n` +
+                                          `  cd <ordner>       - Wechselt das Verzeichnis\n` +
+                                          `  cat <datei>       - Zeigt Dateinhalt\n` +
+                                          `  whoami            - Zeigt aktuellen Nutzer\n` +
+                                          `  useradd <name>    - Erstellt neuen Nutzer (nur root)\n` +
+                                          `  passwd <name>     - Ändert Passwort (nur root)\n` +
+                                          `  sudo <befehl>     - Führt Befehl als root aus\n` +
+                                          `  su <user>         - Benutzer wechseln\n` +
+                                          `  exit              - Abmelden\n` +
+                                          `  clear             - Bildschirm leeren\n`;
                     break;
                 case 'ls':
+                    // Wenn root, zeige alles im Wurzelverzeichnis oder aktuelles Verzeichnis
                     const currentDir = getCurrentDir();
                     const files = Object.keys(currentDir.content).join('  ');
                     terminal.innerHTML += files + '\n';
@@ -187,7 +192,8 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
                 case 'cd':
                     if (args.length === 0) break;
                     if (args[0] === '..') {
-                        if (currentPath.length > (currentUser === 'root' ? 1 : 2)) {
+                        const minLen = activeUser === 'root' ? 1 : 2;
+                        if (currentPath.length > minLen) {
                             currentPath.pop();
                         }
                     } else {
@@ -215,7 +221,39 @@ Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
                     }
                     break;
                 case 'whoami':
-                    terminal.innerHTML += `${currentUser}\n`;
+                    terminal.innerHTML += `${activeUser}\n`;
+                    break;
+                case 'useradd':
+                    if (activeUser !== 'root') {
+                        terminal.innerHTML += `useradd: Permission denied. Nur root darf Nutzer erstellen.\n`;
+                        return;
+                    }
+                    if (args.length === 0) {
+                        terminal.innerHTML += `Verwendung: useradd <benutzername>\n`;
+                        return;
+                    }
+                    const newUsername = args[0];
+                    if (users[newUsername]) {
+                        terminal.innerHTML += `useradd: Benutzer ${newUsername} existiert bereits.\n`;
+                    } else {
+                        users[newUsername] = { pass: "12345", home: ["home", newUsername], sudo: false };
+                        // Ordner im FS anlegen
+                        fileSystem.home.content[newUsername] = {
+                            type: "dir",
+                            content: { "hallo.txt": { type: "file", content: `Willkommen im Home-Ordner von ${newUsername}` } }
+                        };
+                        terminal.innerHTML += `Benutzer ${newUsername} erfolgreich erstellt (Standard-Passwort: 12345).\n`;
+                    }
+                    break;
+                case 'sudo':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `Verwendung: sudo <befehl>\n`;
+                        return;
+                    }
+                    const subCmd = args[0];
+                    const subArgs = args.slice(1);
+                    // Führe den Befehl mit Administratorrechten aus
+                    executeCommand(subCmd, subArgs, true);
                     break;
                 case 'su':
                     const targetUser = args[0] || 'root';

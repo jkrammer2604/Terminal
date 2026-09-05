@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simuliertes Linux Terminal mit Accounts</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        #terminal {
+            flex-grow: 1;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-bottom: 10px;
+            padding-right: 10px;
+        }
+        .input-line {
+            display: flex;
+            align-items: center;
+        }
+        .prompt {
+            color: #00ff00;
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+        #command-input {
+            background: transparent;
+            border: none;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1rem;
+            outline: none;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="terminal">System gestartet.
+Gültige Benutzer: 'guest' (Passwort: guest123) oder 'root' (Passwort: secret)
+</div>
+
+    <div class="input-line">
+        <span class="prompt" id="prompt-label">login:</span>
+        <input type="text" id="command-input" autofocus autocomplete="off" spellcheck="false">
+    </div>
+
+    <script>
+        const terminal = document.getElementById('terminal');
+        const commandInput = document.getElementById('command-input');
+        const promptLabel = document.getElementById('prompt-label');
+
+        // Benutzerdatenbank
+        const users = {
+            "guest": { pass: "guest123", home: ["home", "guest"] },
+            "root": { pass: "secret", home: ["root"] }
+        };
+
+        let currentUser = null;
+        let currentPassCheck = false;
+        let tempUser = "";
+
+        // Virtuelles Dateisystem
+        const fileSystem = {
+            "home": {
+                type: "dir",
+                content: {
+                    "guest": {
+                        type: "dir",
+                        content: {
+                            "willkommen.txt": { type: "file", content: "Hallo! Schön, dass du da bist." }
+                        }
+                    }
+                }
+            },
+            "root": {
+                type: "dir",
+                content: {
+                    "flag.txt": { type: "file", content: "FLAG{linux_master_2026}" }
+                }
+            }
+        };
+
+        let currentPath = [];
+
+        function getCurrentDir() {
+            let dir = fileSystem;
+            for (let p of currentPath) {
+                dir = dir.content[p];
+            }
+            return dir;
+        }
+
+        function getPathString() {
+            if (currentPath[0] === "root") {
+                return "/" + currentPath.join("/");
+            }
+            return "~/" + currentPath.slice(2).join("/");
+        }
+
+        function updatePrompt() {
+            if (!currentUser) {
+                promptLabel.innerText = currentPassCheck ? "Password:" : "login:";
+            } else {
+                const symbol = currentUser === 'root' ? '#' : '$';
+                promptLabel.innerText = `${currentUser}@linux-box:${getPathString()}${symbol}`;
+            }
+        }
+
+        commandInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                const inputVal = commandInput.value;
+                
+                // Login-Ablauf
+                if (!currentUser) {
+                    if (!currentPassCheck) {
+                        tempUser = inputVal.trim();
+                        if (users[tempUser]) {
+                            terminal.innerHTML += `login: ${tempUser}\n`;
+                            currentPassCheck = true;
+                            // Passwortfeld unsichtbar machen (simuliert durch Typ oder Text-Hinweis)
+                        } else {
+                            terminal.innerHTML += `login: ${tempUser}\nLogin incorrect\n`;
+                        }
+                    } else {
+                        terminal.innerHTML += `Password: ****\n`;
+                        if (users[tempUser].pass === inputVal.trim()) {
+                            currentUser = tempUser;
+                            currentPath = [...users[currentUser].home];
+                            terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für Befehle.\n`;
+                        } else {
+                            terminal.innerHTML += `Login incorrect\n`;
+                        }
+                        currentPassCheck = false;
+                        tempUser = "";
+                    }
+                    commandInput.value = '';
+                    updatePrompt();
+                    terminal.scrollTop = terminal.scrollHeight;
+                    return;
+                }
+
+                // Normaler Terminal-Modus nach Login
+                const commandLine = inputVal.trim();
+                const parts = commandLine.split(' ');
+                const cmd = parts[0];
+                const args = parts.slice(1);
+
+                const symbol = currentUser === 'root' ? '#' : '$';
+                terminal.innerHTML += `\n${currentUser}@linux-box:${getPathString()}${symbol} ${commandLine}\n`;
+
+                executeCommand(cmd, args);
+
+                commandInput.value = '';
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        });
+
+        function executeCommand(cmd, args) {
+            switch (cmd) {
+                case 'help':
+                    terminal.innerHTML += `Verfügbare Befehle:\n` +
+                                          `  help         - Zeigt diese Hilfe an\n` +
+                                          `  ls           - Listet Dateien auf\n` +
+                                          `  cd <ordner>  - Wechselt das Verzeichnis\n` +
+                                          `  cat <datei>  - Zeigt den Inhalt einer Datei\n` +
+                                          `  whoami       - Zeigt den aktuellen Benutzer\n` +
+                                          `  su <user>    - Benutzer wechseln\n` +
+                                          `  exit         - Ausloggen\n` +
+                                          `  clear        - Leert den Bildschirm\n`;
+                    break;
+                case 'ls':
+                    const currentDir = getCurrentDir();
+                    const files = Object.keys(currentDir.content).join('  ');
+                    terminal.innerHTML += files + '\n';
+                    break;
+                case 'cd':
+                    if (args.length === 0) break;
+                    if (args[0] === '..') {
+                        if (currentPath.length > (currentUser === 'root' ? 1 : 2)) {
+                            currentPath.pop();
+                        }
+                    } else {
+                        const target = args[0];
+                        const currentDirContent = getCurrentDir().content;
+                        if (currentDirContent[target] && currentDirContent[target].type === 'dir') {
+                            currentPath.push(target);
+                        } else {
+                            terminal.innerHTML += `cd: ${target}: Keine Berechtigung oder nicht gefunden\n`;
+                        }
+                    }
+                    updatePrompt();
+                    break;
+                case 'cat':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `cat: Dateiname fehlt\n`;
+                        break;
+                    }
+                    const fileName = args[0];
+                    const fileDir = getCurrentDir().content;
+                    if (fileDir[fileName] && fileDir[fileName].type === 'file') {
+                        terminal.innerHTML += fileDir[fileName].content + '\n';
+                    } else {
+                        terminal.innerHTML += `cat: ${fileName}: Datei nicht gefunden\n`;
+                    }
+                    break;
+                case 'whoami':
+                    terminal.innerHTML += `${currentUser}\n`;
+                    break;
+                case 'su':
+                    const targetUser = args[0] || 'root';
+                    if (users[targetUser]) {
+                        currentUser = targetUser;
+                        currentPath = [...users[currentUser].home];
+                        terminal.innerHTML += `Gewechselt zu ${currentUser}\n`;
+                        updatePrompt();
+                    } else {
+                        terminal.innerHTML += `su: Benutzer ${targetUser} existiert nicht\n`;
+                    }
+                    break;
+                case 'exit':
+                    currentUser = null;
+                    terminal.innerHTML += `Abgemeldet.\n`;
+                    updatePrompt();
+                    break;
+                case 'clear':
+                    terminal.innerHTML = '';
+                    break;
+                case '':
+                    break;
+                default:
+                    terminal.innerHTML += `bash: ${cmd}: Befehl nicht gefunden\n`;
+            }
+        }
+
+        document.addEventListener('click', () => {
+            commandInput.focus();
+        });
+    </script>
+
+</body>
+</html>

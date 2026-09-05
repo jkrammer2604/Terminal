@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Linux Terminal mit Useradd & Sudo</title>
+    <title>Erweitertes Linux Terminal</title>
     <style>
         body {
-            background-color: #121212;
-            color: #00ff00;
+            background-color: #0c0c0c;
+            color: #00ff66;
             font-family: 'Courier New', Courier, monospace;
             margin: 0;
             padding: 20px;
@@ -29,14 +29,14 @@
             align-items: center;
         }
         .prompt {
-            color: #00ff00;
+            color: #00ff66;
             margin-right: 8px;
             white-space: nowrap;
         }
         #command-input {
             background: transparent;
             border: none;
-            color: #00ff00;
+            color: #00ff66;
             font-family: 'Courier New', Courier, monospace;
             font-size: 1rem;
             outline: none;
@@ -46,7 +46,7 @@
 </head>
 <body>
 
-    <div id="terminal">System gestartet.
+    <div id="terminal">System gestartet. V2.6
 Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
 </div>
 
@@ -60,57 +60,76 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
         const commandInput = document.getElementById('command-input');
         const promptLabel = document.getElementById('prompt-label');
 
-        // Dynamische Benutzerdatenbank
         const users = {
             "root": { pass: "secret", home: ["root"], sudo: true },
             "guest": { pass: "guest123", home: ["home", "guest"], sudo: false }
         };
 
         let currentUser = null;
-        let currentPassCheck = false;
+        let authState = "LOGIN_USER"; // LOGIN_USER, LOGIN_PASS, SUDO_PASS, PASSWD_NEW
         let tempUser = "";
+        let pendingSudoCmd = "";
 
-        // Virtuelles Dateisystem
+        // Virtuelles Dateisystem (Baumstruktur)
         const fileSystem = {
-            "home": {
-                type: "dir",
-                content: {
-                    "guest": {
-                        type: "dir",
-                        content: {
-                            "willkommen.txt": { type: "file", content: "Hallo! Du bist als Gast eingeloggt." }
+            type: "dir",
+            content: {
+                "home": {
+                    type: "dir",
+                    content: {
+                        "guest": {
+                            type: "dir",
+                            content: {
+                                "willkommen.txt": { type: "file", content: "Hallo! Du bist als Gast eingeloggt." }
+                            }
                         }
                     }
-                }
-            },
-            "root": {
-                type: "dir",
-                content: {
-                    "geheimes_flag.txt": { type: "file", content: "FLAG{sudo_master_2026}" }
+                },
+                "root": {
+                    type: "dir",
+                    content: {
+                        "geheimes_flag.txt": { type: "file", content: "FLAG{terminal_pro_2026}" }
+                    }
                 }
             }
         };
 
-        let currentPath = [];
+        let currentPath = ["home", "guest"];
+
+        function getNodeByPath(pathArr) {
+            let node = fileSystem;
+            for (let p of pathArr) {
+                if (node.content && node.content[p]) {
+                    node = node.content[p];
+                } else {
+                    return null;
+                }
+            }
+            return node;
+        }
 
         function getCurrentDir() {
-            let dir = fileSystem;
-            for (let p of currentPath) {
-                dir = dir.content[p];
-            }
-            return dir;
+            return getNodeByPath(currentPath);
         }
 
         function getPathString() {
-            if (currentPath[0] === "root") {
-                return "/" + currentPath.join("/");
+            if (currentPath.length === 1 && currentPath[0] === "root") return "/root";
+            if (currentPath[0] === "root") return "/" + currentPath.join("/");
+            if (currentPath.length >= 2 && currentPath[0] === "home" && currentPath[1] === currentUser) {
+                let sub = currentPath.slice(2);
+                return sub.length === 0 ? "~" : "~/" + sub.join("/");
             }
-            return "~/" + currentPath.slice(2).join("/");
+            return "/" + currentPath.join("/");
         }
 
         function updatePrompt() {
             if (!currentUser) {
-                promptLabel.innerText = currentPassCheck ? "Password:" : "login:";
+                if (authState === "LOGIN_PASS") promptLabel.innerText = "Password:";
+                else promptLabel.innerText = "login:";
+            } else if (authState === "SUDO_PASS") {
+                promptLabel.innerText = `[sudo] password for ${currentUser}:`;
+            } else if (authState === "PASSWD_NEW") {
+                promptLabel.innerText = `New password:`;
             } else {
                 const symbol = currentUser === 'root' ? '#' : '$';
                 promptLabel.innerText = `${currentUser}@linux-box:${getPathString()}${symbol}`;
@@ -120,28 +139,15 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
         commandInput.addEventListener('keydown', function(event) {
             if (event.key === 'Enter') {
                 const inputVal = commandInput.value;
-                
-                // Login-Ablauf
-                if (!currentUser) {
-                    if (!currentPassCheck) {
-                        tempUser = inputVal.trim();
-                        if (users[tempUser]) {
-                            terminal.innerHTML += `login: ${tempUser}\n`;
-                            currentPassCheck = true;
-                        } else {
-                            terminal.innerHTML += `login: ${tempUser}\nLogin incorrect\n`;
-                        }
+
+                // 1. Authentifizierungs-Zustände abfangen
+                if (authState === "LOGIN_USER") {
+                    tempUser = inputVal.trim();
+                    if (users[tempUser]) {
+                        terminal.innerHTML += `login: ${tempUser}\n`;
+                        authState = "LOGIN_PASS";
                     } else {
-                        terminal.innerHTML += `Password: ****\n`;
-                        if (users[tempUser].pass === inputVal.trim()) {
-                            currentUser = tempUser;
-                            currentPath = [...users[currentUser].home];
-                            terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für Befehle.\n`;
-                        } else {
-                            terminal.innerHTML += `Login incorrect\n`;
-                        }
-                        currentPassCheck = false;
-                        tempUser = "";
+                        terminal.innerHTML += `login: ${tempUser}\nLogin incorrect\n`;
                     }
                     commandInput.value = '';
                     updatePrompt();
@@ -149,60 +155,155 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
                     return;
                 }
 
-                // Befehlsausführung nach Login
+                if (authState === "LOGIN_PASS") {
+                    terminal.innerHTML += `Password: ****\n`;
+                    if (users[tempUser].pass === inputVal.trim()) {
+                        currentUser = tempUser;
+                        currentPath = [...users[currentUser].home];
+                        terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für Befehle.\n`;
+                        authState = "NORMAL";
+                    } else {
+                        terminal.innerHTML += `Login incorrect\n`;
+                        authState = "LOGIN_USER";
+                    }
+                    commandInput.value = '';
+                    updatePrompt();
+                    terminal.scrollTop = terminal.scrollHeight;
+                    return;
+                }
+
+                if (authState === "SUDO_PASS") {
+                    terminal.innerHTML += `[sudo] password: ****\n`;
+                    if (users[currentUser].pass === inputVal.trim() || users["root"].pass === inputVal.trim()) {
+                        terminal.innerHTML += `Authentifizierung erfolgreich. Führe Befehl aus...\n`;
+                        authState = "NORMAL";
+                        const cmdParts = pendingSudoCmd.split(' ');
+                        pendingSudoCmd = "";
+                        executeCommand(cmdParts[0], cmdParts.slice(1), true);
+                    } else {
+                        terminal.innerHTML += `sudo: 3 incorrect password attempts\n`;
+                        authState = "NORMAL";
+                        pendingSudoCmd = "";
+                    }
+                    commandInput.value = '';
+                    updatePrompt();
+                    terminal.scrollTop = terminal.scrollHeight;
+                    return;
+                }
+
+                if (authState === "PASSWD_NEW") {
+                    terminal.innerHTML += `New password: ****\n`;
+                    const newPass = inputVal.trim();
+                    if (newPass.length > 0) {
+                        users[currentUser].pass = newPass;
+                        terminal.innerHTML += `passwd: password updated successfully\n`;
+                    } else {
+                        terminal.innerHTML += `passwd: password unchanged\n`;
+                    }
+                    authState = "NORMAL";
+                    commandInput.value = '';
+                    updatePrompt();
+                    terminal.scrollTop = terminal.scrollHeight;
+                    return;
+                }
+
+                // 2. Normaler Terminal-Modus
                 const commandLine = inputVal.trim();
-                const parts = commandLine.split(' ');
-                const cmd = parts[0];
-                const args = parts.slice(1);
+                if (commandLine === "") {
+                    commandInput.value = '';
+                    return;
+                }
 
                 const symbol = currentUser === 'root' ? '#' : '$';
                 terminal.innerHTML += `\n${currentUser}@linux-box:${getPathString()}${symbol} ${commandLine}\n`;
 
-                executeCommand(cmd, args);
+                const parts = parseCommand(commandLine);
+                const cmd = parts[0];
+                const args = parts.slice(1);
+
+                executeCommand(cmd, args, false);
 
                 commandInput.value = '';
                 terminal.scrollTop = terminal.scrollHeight;
             }
         });
 
+        // Hilfsfunktion zum Parsen (behandelt Anführungszeichen für echo etc.)
+        function parseCommand(str) {
+            let args = [];
+            let current = "";
+            let inQuotes = false;
+            for (let i = 0; i < str.length; i++) {
+                let char = str[i];
+                if (char === '"' || char === "'") {
+                    inQuotes = !inQuotes;
+                } else if (char === ' ' && !inQuotes) {
+                    if (current !== "") {
+                        args.push(current);
+                        current = "";
+                    }
+                } else {
+                    current += char;
+                }
+            }
+            if (current !== "") args.push(current);
+            return args;
+        }
+
         function executeCommand(cmd, args, runAsRoot = false) {
-            const activeUser = runAsRoot ? 'root' : currentUser;
+            const effectiveUser = runAsRoot ? 'root' : currentUser;
 
             switch (cmd) {
                 case 'help':
                     terminal.innerHTML += `Verfügbare Befehle:\n` +
                                           `  help              - Zeigt diese Hilfe\n` +
                                           `  ls                - Listet Dateien auf\n` +
-                                          `  cd <ordner>       - Wechselt das Verzeichnis\n` +
+                                          `  cd <pfad>         - Wechselt das Verzeichnis\n` +
                                           `  cat <datei>       - Zeigt Dateinhalt\n` +
+                                          `  touch <datei>     - Erstellt eine leere Datei\n` +
+                                          `  echo "t" > <file> - Schreibt Text in Datei\n` +
+                                          `  pwd               - Zeigt aktuellen Pfad\n` +
                                           `  whoami            - Zeigt aktuellen Nutzer\n` +
-                                          `  useradd <name>    - Erstellt neuen Nutzer (nur root)\n` +
-                                          `  passwd <name>     - Ändert Passwort (nur root)\n` +
+                                          `  passwd            - Ändert eigenes Passwort\n` +
+                                          `  useradd <name>    - Erstellt neuen Nutzer (sudo)\n` +
                                           `  sudo <befehl>     - Führt Befehl als root aus\n` +
                                           `  su <user>         - Benutzer wechseln\n` +
                                           `  exit              - Abmelden\n` +
                                           `  clear             - Bildschirm leeren\n`;
                     break;
                 case 'ls':
-                    // Wenn root, zeige alles im Wurzelverzeichnis oder aktuelles Verzeichnis
                     const currentDir = getCurrentDir();
-                    const files = Object.keys(currentDir.content).join('  ');
-                    terminal.innerHTML += files + '\n';
+                    if (currentDir && currentDir.content) {
+                        const files = Object.keys(currentDir.content).join('  ');
+                        terminal.innerHTML += files + '\n';
+                    }
+                    break;
+                case 'pwd':
+                    terminal.innerHTML += `/${currentPath.join('/')}\n`;
                     break;
                 case 'cd':
-                    if (args.length === 0) break;
-                    if (args[0] === '..') {
-                        const minLen = activeUser === 'root' ? 1 : 2;
-                        if (currentPath.length > minLen) {
-                            currentPath.pop();
-                        }
+                    if (args.length === 0 || args[0] === '~') {
+                        currentPath = [...users[currentUser].home];
                     } else {
-                        const target = args[0];
-                        const currentDirContent = getCurrentDir().content;
-                        if (currentDirContent[target] && currentDirContent[target].type === 'dir') {
-                            currentPath.push(target);
+                        let targetPath = [...currentPath];
+                        let parts = args[0].split('/');
+                        if (args[0].startsWith('/')) {
+                            targetPath = [];
+                            parts = parts.slice(1);
+                        }
+                        for (let p of parts) {
+                            if (p === '' || p === '.') continue;
+                            if (p === '..') {
+                                if (targetPath.length > 0) targetPath.pop();
+                            } else {
+                                targetPath.push(p);
+                            }
+                        }
+                        let node = getNodeByPath(targetPath);
+                        if (node && node.type === 'dir') {
+                            currentPath = targetPath;
                         } else {
-                            terminal.innerHTML += `cd: ${target}: Keine Berechtigung oder nicht gefunden\n`;
+                            terminal.innerHTML += `cd: ${args[0]}: Datei oder Verzeichnis nicht gefunden\n`;
                         }
                     }
                     updatePrompt();
@@ -212,37 +313,61 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
                         terminal.innerHTML += `cat: Dateiname fehlt\n`;
                         break;
                     }
-                    const fileName = args[0];
-                    const fileDir = getCurrentDir().content;
-                    if (fileDir[fileName] && fileDir[fileName].type === 'file') {
-                        terminal.innerHTML += fileDir[fileName].content + '\n';
+                    let dir = getCurrentDir();
+                    if (dir.content[args[0]] && dir.content[args[0]].type === 'file') {
+                        terminal.innerHTML += dir.content[args[0]].content + '\n';
                     } else {
-                        terminal.innerHTML += `cat: ${fileName}: Datei nicht gefunden\n`;
+                        terminal.innerHTML += `cat: ${args[0]}: Datei nicht gefunden\n`;
+                    }
+                    break;
+                case 'touch':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `touch: Dateiname fehlt\n`;
+                        break;
+                    }
+                    let curDir = getCurrentDir();
+                    let fName = args[0];
+                    if (!curDir.content[fName]) {
+                        curDir.content[fName] = { type: "file", content: "" };
+                    }
+                    break;
+                case 'echo':
+                    // Beispiel: echo "Hallo Welt" > datei.txt
+                    let redirectIdx = args.indexOf('>');
+                    if (redirectIdx !== -1 && args[redirectIdx + 1]) {
+                        let textContent = args.slice(0, redirectIdx).join(' ');
+                        let targetFile = args[redirectIdx + 1];
+                        getCurrentDir().content[targetFile] = { type: "file", content: textContent };
+                    } else {
+                        terminal.innerHTML += args.join(' ') + '\n';
                     }
                     break;
                 case 'whoami':
-                    terminal.innerHTML += `${activeUser}\n`;
+                    terminal.innerHTML += `${currentUser}\n`;
+                    break;
+                case 'passwd':
+                    authState = "PASSWD_NEW";
+                    updatePrompt();
                     break;
                 case 'useradd':
-                    if (activeUser !== 'root') {
-                        terminal.innerHTML += `useradd: Permission denied. Nur root darf Nutzer erstellen.\n`;
+                    if (effectiveUser !== 'root') {
+                        terminal.innerHTML += `useradd: Permission denied. Nur root (oder sudo) darf Nutzer erstellen.\n`;
                         return;
                     }
                     if (args.length === 0) {
                         terminal.innerHTML += `Verwendung: useradd <benutzername>\n`;
                         return;
                     }
-                    const newUsername = args[0];
-                    if (users[newUsername]) {
-                        terminal.innerHTML += `useradd: Benutzer ${newUsername} existiert bereits.\n`;
+                    let newName = args[0];
+                    if (users[newName]) {
+                        terminal.innerHTML += `useradd: Benutzer ${newName} existiert bereits.\n`;
                     } else {
-                        users[newUsername] = { pass: "12345", home: ["home", newUsername], sudo: false };
-                        // Ordner im FS anlegen
-                        fileSystem.home.content[newUsername] = {
+                        users[newName] = { pass: "12345", home: ["home", newName], sudo: false };
+                        fileSystem.content.home.content[newName] = {
                             type: "dir",
-                            content: { "hallo.txt": { type: "file", content: `Willkommen im Home-Ordner von ${newUsername}` } }
+                            content: { "hallo.txt": { type: "file", content: `Willkommen, ${newName}!` } }
                         };
-                        terminal.innerHTML += `Benutzer ${newUsername} erfolgreich erstellt (Standard-Passwort: 12345).\n`;
+                        terminal.innerHTML += `Benutzer ${newName} erstellt (Standard-Passwort: 12345).\n`;
                     }
                     break;
                 case 'sudo':
@@ -250,13 +375,18 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
                         terminal.innerHTML += `Verwendung: sudo <befehl>\n`;
                         return;
                     }
-                    const subCmd = args[0];
-                    const subArgs = args.slice(1);
-                    // Führe den Befehl mit Administratorrechten aus
-                    executeCommand(subCmd, subArgs, true);
+                    if (users[currentUser].sudo) {
+                        // Wenn der Nutzer Admin-Rechte hat, direkt ausführen
+                        executeCommand(args[0], args.slice(1), true);
+                    } else {
+                        // Passwort abfragen für normale User
+                        pendingSudoCmd = args.join(' ');
+                        authState = "SUDO_PASS";
+                        updatePrompt();
+                    }
                     break;
                 case 'su':
-                    const targetUser = args[0] || 'root';
+                    let targetUser = args[0] || 'root';
                     if (users[targetUser]) {
                         currentUser = targetUser;
                         currentPath = [...users[currentUser].home];
@@ -268,13 +398,12 @@ Standard-Logins: 'root' (Passwort: secret) oder 'guest' (Passwort: guest123)
                     break;
                 case 'exit':
                     currentUser = null;
+                    authState = "LOGIN_USER";
                     terminal.innerHTML += `Abgemeldet.\n`;
                     updatePrompt();
                     break;
                 case 'clear':
                     terminal.innerHTML = '';
-                    break;
-                case '':
                     break;
                 default:
                     terminal.innerHTML += `bash: ${cmd}: Befehl nicht gefunden\n`;

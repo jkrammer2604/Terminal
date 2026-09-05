@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supabase Linux Terminal</title>
-    <!-- Supabase JS Client per CDN -->
+    <title>Supabase Linux Terminal - 20 Befehle</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
@@ -57,9 +56,8 @@
     </div>
 
     <script>
-        // --- HIER DEINE SUPABASE DATEN EINTRAGEN ---
-        const SUPABASE_URL = 'https://fyklknvrahzaqeksiosq.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_A3FfZHSipqUHb74clLXjeg_VDhqeu12';
+        const SUPABASE_URL = 'DEINE_SUPABASE_URL_HIER';
+        const SUPABASE_ANON_KEY = 'DEIN_SUPABASE_ANON_KEY_HIER';
         
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -68,7 +66,7 @@
         const promptLabel = document.getElementById('prompt-label');
 
         let currentUser = null;
-        let authState = "LOGIN_USER"; // LOGIN_USER, LOGIN_PASS, NORMAL
+        let authState = "LOGIN_USER"; 
         let tempUser = "";
         let currentPath = [];
 
@@ -102,18 +100,14 @@
             if (event.key === 'Enter') {
                 const inputVal = commandInput.value.trim();
 
-                // 1. Login Ablauf
                 if (!currentUser) {
                     if (authState === "LOGIN_USER") {
                         tempUser = inputVal;
                         terminal.innerHTML += `login: ${tempUser}\n`;
-                        if (tempUser) {
-                            authState = "LOGIN_PASS";
-                        }
+                        if (tempUser) authState = "LOGIN_PASS";
                     } else if (authState === "LOGIN_PASS") {
                         terminal.innerHTML += `Password: ****\n`;
-                        // Benutzer in Supabase prüfen
-                        const { data, error } = await supabaseClient
+                        const { data } = await supabaseClient
                             .from('users')
                             .select('*')
                             .eq('username', tempUser)
@@ -123,7 +117,7 @@
                             currentUser = data.username;
                             currentPath = [currentUser];
                             authState = "NORMAL";
-                            terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für Befehle.\n`;
+                            terminal.innerHTML += `Willkommen, ${currentUser}!\nTippe 'help' für alle 20 Befehle.\n`;
                         } else {
                             terminal.innerHTML += `Login incorrect\n`;
                             authState = "LOGIN_USER";
@@ -136,93 +130,248 @@
                     return;
                 }
 
-                // 2. Normaler Terminal-Modus
                 if (inputVal === "") return;
                 const symbol = currentUser === 'root' ? '#' : '$';
                 terminal.innerHTML += `\n${currentUser}@linux-box:${getPathString()}${symbol} ${inputVal}\n`;
 
-                const parts = inputVal.split(' ');
+                // Parsing für Befehle und Argumente (unterstützt Anführungszeichen)
+                const parts = parseCommand(inputVal);
                 const cmd = parts[0];
                 const args = parts.slice(1);
 
-                await executeDbCommand(cmd, args);
+                await executeDbCommand(cmd, args, inputVal);
 
                 commandInput.value = '';
                 terminal.scrollTop = terminal.scrollHeight;
             }
         });
 
-        // Befehle mit Supabase-Verknüpfung ausführen
-        async function executeDbCommand(cmd, args) {
+        function parseCommand(str) {
+            let args = [];
+            let current = "";
+            let inQuotes = false;
+            for (let i = 0; i < str.length; i++) {
+                let char = str[i];
+                if (char === '"' || char === "'") {
+                    inQuotes = !inQuotes;
+                } else if (char === ' ' && !inQuotes) {
+                    if (current !== "") {
+                        args.push(current);
+                        current = "";
+                    }
+                } else {
+                    current += char;
+                }
+            }
+            if (current !== "") args.push(current);
+            return args;
+        }
+
+        // --- HIER SIND DIE 20 BEFEHLE IMPLEMENTIERT ---
+        async function executeDbCommand(cmd, args, fullLine) {
             const fullPath = currentPath.join('/');
 
             switch (cmd) {
+                // 1. help
                 case 'help':
-                    terminal.innerHTML += `Verfügbare Befehle:\n` +
-                                          `  help              - Zeigt Hilfe\n` +
-                                          `  ls                - Dateien anzeigen (aus DB)\n` +
-                                          `  touch <datei>     - Datei erstellen (in DB)\n` +
-                                          `  cat <datei>       - Datei lesen (aus DB)\n` +
-                                          `  whoami            - Aktueller Nutzer\n` +
-                                          `  exit              - Abmelden\n` +
-                                          `  clear             - Bildschirm leeren\n`;
+                    terminal.innerHTML += `Verfügbare Befehle (20 Stück):\n` +
+                                          `  1. help      - Zeigt diese Hilfe\n` +
+                                          `  2. ls        - Dateien auflisten\n` +
+                                          `  3. cd        - Verzeichnis wechseln\n` +
+                                          `  4. pwd       - Aktueller Pfad\n` +
+                                          `  5. touch     - Datei erstellen\n` +
+                                          `  6. mkdir     - Ordner erstellen\n` +
+                                          `  7. cat       - Datei lesen\n` +
+                                          `  8. echo      - Text ausgeben / in Datei schreiben\n` +
+                                          `  9. rm        - Datei löschen\n` +
+                                          ` 10. clear     - Bildschirm leeren\n` +
+                                          ` 11. whoami    - Aktueller Benutzer\n` +
+                                          ` 12. date      - Aktuelles Datum & Uhrzeit\n` +
+                                          ` 13. uptime    - System-Laufzeit\n` +
+                                          ` 14. hostname  - Computername anzeigen\n` +
+                                          ` 15. uname     - System-Informationen\n` +
+                                          ` 16. history   - Befehls-Historie\n` +
+                                          ` 17. passwd    - Passwort ändern\n` +
+                                          ` 18. users     - Registrierte Nutzer anzeigen\n` +
+                                          ` 19. ping      - Verbindungstest\n` +
+                                          ` 20. exit      - Abmelden\n`;
                     break;
 
+                // 2. ls
                 case 'ls':
-                    const { data: files, error } = await supabaseClient
+                    let targetDir = fullPath;
+                    if (args.length > 0) {
+                        targetDir = fullPath + '/' + args[0];
+                    }
+                    const { data: files } = await supabaseClient
                         .from('terminal_files')
                         .select('name')
-                        .eq('path', fullPath);
+                        .eq('path', targetDir);
 
-                    if (error) {
-                        terminal.innerHTML += `Fehler beim Laden: ${error.message}\n`;
-                    } else {
-                        const fileNames = files.map(f => f.name).join('  ');
-                        terminal.innerHTML += fileNames + '\n';
+                    if (files) {
+                        terminal.innerHTML += files.map(f => f.name).join('  ') + '\n';
                     }
                     break;
 
+                // 3. cd
+                case 'cd':
+                    if (args.length === 0 || args[0] === '~') {
+                        currentPath = [currentUser];
+                    } else if (args[0] === '..') {
+                        if (currentPath.length > 1) currentPath.pop();
+                    } else {
+                        const target = args[0];
+                        const { data: folderCheck } = await supabaseClient
+                            .from('terminal_files')
+                            .select('*')
+                            .eq('path', fullPath)
+                            .eq('name', target)
+                            .eq('type', 'dir')
+                            .single();
+
+                        if (folderCheck) {
+                            currentPath.push(target);
+                        } else {
+                            terminal.innerHTML += `cd: ${target}: Verzeichnis nicht gefunden\n`;
+                        }
+                    }
+                    updatePrompt();
+                    break;
+
+                // 4. pwd
+                case 'pwd':
+                    terminal.innerHTML += `/${currentPath.join('/')}\n`;
+                    break;
+
+                // 5. touch
                 case 'touch':
                     if (args.length === 0) {
                         terminal.innerHTML += `touch: Dateiname fehlt\n`;
                         return;
                     }
-                    const fileName = args[0];
-                    const { error: insertError } = await supabaseClient
-                        .from('terminal_files')
-                        .insert([{ path: fullPath, name: fileName, type: 'file', content: '' }]);
-
-                    if (insertError) {
-                        terminal.innerHTML += `Fehler: ${insertError.message}\n`;
-                    } else {
-                        terminal.innerHTML += `Datei '${fileName}' in Supabase erstellt.\n`;
-                    }
+                    await supabaseClient.from('terminal_files').insert([{ path: fullPath, name: args[0], type: 'file', content: '' }]);
+                    terminal.innerHTML += `Datei '${args[0]}' erstellt.\n`;
                     break;
 
+                // 6. mkdir
+                case 'mkdir':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `mkdir: Ordnername fehlt\n`;
+                        return;
+                    }
+                    await supabaseClient.from('terminal_files').insert([{ path: fullPath, name: args[0], type: 'dir', content: '' }]);
+                    terminal.innerHTML += `Verzeichnis '${args[0]}' erstellt.\n`;
+                    break;
+
+                // 7. cat
                 case 'cat':
                     if (args.length === 0) {
                         terminal.innerHTML += `cat: Dateiname fehlt\n`;
                         return;
                     }
-                    const targetFile = args[0];
-                    const { data: fileData, error: readError } = await supabaseClient
+                    const { data: fileData } = await supabaseClient
                         .from('terminal_files')
                         .select('content')
                         .eq('path', fullPath)
-                        .eq('name', targetFile)
+                        .eq('name', args[0])
                         .single();
 
-                    if (readError || !fileData) {
-                        terminal.innerHTML += `cat: ${targetFile}: Datei nicht gefunden\n`;
-                    } else {
+                    if (fileData) {
                         terminal.innerHTML += (fileData.content || '') + '\n';
+                    } else {
+                        terminal.innerHTML += `cat: ${args[0]}: Datei nicht gefunden\n`;
                     }
                     break;
 
+                // 8. echo (unterstützt auch: echo "text" > datei)
+                case 'echo':
+                    let redirectIdx = args.indexOf('>');
+                    if (redirectIdx !== -1 && args[redirectIdx + 1]) {
+                        let textContent = args.slice(0, redirectIdx).join(' ');
+                        let targetFile = args[redirectIdx + 1];
+                        
+                        // Prüfen ob Datei existiert, sonst anlegen oder updaten
+                        await supabaseClient.from('terminal_files').upsert([
+                            { path: fullPath, name: targetFile, type: 'file', content: textContent }
+                        ], { onConflict: 'path,name' });
+
+                        terminal.innerHTML += `Text in '${targetFile}' geschrieben.\n`;
+                    } else {
+                        terminal.innerHTML += args.join(' ') + '\n';
+                    }
+                    break;
+
+                // 9. rm
+                case 'rm':
+                    if (args.length === 0) {
+                        terminal.innerHTML += `rm: Dateiname fehlt\n`;
+                        return;
+                    }
+                    await supabaseClient.from('terminal_files').delete().eq('path', fullPath).eq('name', args[0]);
+                    terminal.innerHTML += `Eintrag '${args[0]}' gelöscht.\n`;
+                    break;
+
+                // 10. clear
+                case 'clear':
+                    terminal.innerHTML = '';
+                    break;
+
+                // 11. whoami
                 case 'whoami':
                     terminal.innerHTML += `${currentUser}\n`;
                     break;
 
+                // 12. date
+                case 'date':
+                    terminal.innerHTML += `${new Date().toUTCString()}\n`;
+                    break;
+
+                // 13. uptime
+                case 'uptime':
+                    terminal.innerHTML += ` 10:17:21 up 42 days,  13:37,  1 user,  load average: 0.00, 0.01, 0.05\n`;
+                    break;
+
+                // 14. hostname
+                case 'hostname':
+                    terminal.innerHTML += `supabase-linux-box\n`;
+                    break;
+
+                // 15. uname
+                case 'uname':
+                    terminal.innerHTML += `Linux supabase-box 6.5.0-generic x86_64 GNU/Linux\n`;
+                    break;
+
+                // 16. history
+                case 'history':
+                    terminal.innerHTML += `  1  help\n  2  ls\n  3  whoami\n  4  ${fullLine}\n`;
+                    break;
+
+                // 17. passwd
+                case 'passwd':
+                    if (args.length > 0) {
+                        let newPass = args[0];
+                        await supabaseClient.from('users').update({ password: newPass }).eq('username', currentUser);
+                        terminal.innerHTML += `Passwort erfolgreich geändert.\n`;
+                    } else {
+                        terminal.innerHTML += `Verwendung: passwd <neues_passwort>\n`;
+                    }
+                    break;
+
+                // 18. users
+                case 'users':
+                    const { data: userList } = await supabaseClient.from('users').select('username');
+                    if (userList) {
+                        terminal.innerHTML += userList.map(u => u.username).join('  ') + '\n';
+                    }
+                    break;
+
+                // 19. ping
+                case 'ping':
+                    const host = args[0] || 'localhost';
+                    terminal.innerHTML += `PING ${host} (127.0.0.1) 56(84) bytes of data.\n64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.042 ms\n`;
+                    break;
+
+                // 20. exit
                 case 'exit':
                     currentUser = null;
                     authState = "LOGIN_USER";
@@ -230,12 +379,8 @@
                     updatePrompt();
                     break;
 
-                case 'clear':
-                    terminal.innerHTML = '';
-                    break;
-
                 default:
-                    terminal.innerHTML += `bash: ${cmd}: Befehl nicht gefunden\n`;
+                    terminal.innerHTML += `bash: ${cmd}: Befehl nicht gefunden. Tippe 'help' für die Liste.\n`;
             }
         }
 
